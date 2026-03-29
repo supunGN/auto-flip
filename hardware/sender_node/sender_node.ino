@@ -3,104 +3,94 @@
 #include <WebServer.h>
 
 // ==========================================
-// 1. Network & ESP-NOW Settings
+// NETWORK
 // ==========================================
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "RAZYN";
+const char* password = "HiRAZYN07";
 
-uint8_t broadcastAddress[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; //update this
-
+uint8_t broadcastAddress[] = {0xEC,0xE3,0x34,0x7B,0x74,0xC4};
 WebServer server(80);
 
 // ==========================================
-// 2. Hardware Pins
+// PINS
 // ==========================================
 const int ldrPin = 34;
 const int irA = 27;
 const int irB = 26;
 
 // ==========================================
-// 3. IR State Machine Variables
+// IR STATE
 // ==========================================
 int personCount = 0;
 int irState = 0;
 unsigned long lastTriggerTime = 0;
 
-int lastSentState = -1;
-
 // ==========================================
-// 4. Light Control Variables
+// LIGHT
 // ==========================================
 bool lightState = false;
+int lastSentState = -1;
+bool autoLightOn = false;
 
 // ==========================================
-// 5. Manual Override Variables
+// MODE
 // ==========================================
 bool autoMode = true;
 int manualLightState = 0;
 
-unsigned long manualStartTime = 0;
-const unsigned long FAILSAFE_TIME = 7200000; // 2 hours
+// ==========================================
+// TIMERS
+// ==========================================
+unsigned long darkStart = 0;
+bool darkRunning = false;
+
+const unsigned long DELAY_TIME = 60000; // 1 min
 
 // ==========================================
-// API ROUTES
+// API
 // ==========================================
-void handleStatus() {
-
+void handleStatus(){
   int brightness = map(analogRead(ldrPin),0,4095,100,0);
 
   String json = "{";
   json += "\"count\":" + String(personCount) + ",";
   json += "\"light\":" + String(brightness) + ",";
-  json += "\"autoMode\":" + String(autoMode ? "true" : "false") + ",";
+  json += "\"autoMode\":" + String(autoMode ? "true":"false") + ",";
   json += "\"servoState\":" + String(lastSentState);
   json += "}";
 
   server.send(200,"application/json",json);
 }
 
-void handleManualOn() {
-
+void handleManualOn(){
   autoMode = false;
   manualLightState = 1;
-  manualStartTime = millis();
-
+  autoLightOn = false;
   server.send(200,"text/plain","Manual ON");
-
-  Serial.println("📱 API → LIGHT FORCED ON");
 }
 
-void handleManualOff() {
-
+void handleManualOff(){
   autoMode = false;
   manualLightState = 0;
-  manualStartTime = millis();
-
+  autoLightOn = false;
   server.send(200,"text/plain","Manual OFF");
-
-  Serial.println("📱 API → LIGHT FORCED OFF");
 }
 
-void handleAutoOn() {
-
+void handleAutoOn(){
   autoMode = true;
-
   server.send(200,"text/plain","Auto Mode");
-
-  Serial.println("📱 API → AUTO MODE RESTORED");
 }
 
 // ==========================================
 // SETUP
 // ==========================================
-void setup() {
+void setup(){
 
   Serial.begin(115200);
 
   pinMode(irA,INPUT);
   pinMode(irB,INPUT);
 
-  // WiFi Connection
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid,password);
 
@@ -111,186 +101,149 @@ void setup() {
     Serial.print(".");
   }
 
-  Serial.println("\n✅ Connected");
-  Serial.print("📡 API IP Address: ");
+  Serial.println("\n\n✅ WIFI CONNECTED!");
+  Serial.print("📶 Network: ");
+  Serial.println(ssid);
+
+  Serial.print("🌐 IP Address: ");
   Serial.println(WiFi.localIP());
 
-  // ESP-NOW Init
-  if(esp_now_init()!=ESP_OK){
-    Serial.println("ESP NOW INIT FAILED");
-    return;
-  }
+  Serial.println("\n👉 Open this in Expo Go:");
+  Serial.print("http://");
+  Serial.println(WiFi.localIP());
+  Serial.println("=================================\n");
+
+  // ESP NOW
+  esp_now_init();
 
   esp_now_peer_info_t peerInfo={};
   memcpy(peerInfo.peer_addr,broadcastAddress,6);
-
   peerInfo.channel = WiFi.channel();
-  peerInfo.encrypt = false;
   peerInfo.ifidx = WIFI_IF_STA;
 
-  if(esp_now_add_peer(&peerInfo)!=ESP_OK){
-    Serial.println("Peer Add Failed");
-    return;
-  }
+  esp_now_add_peer(&peerInfo);
 
-  // API Routes
+  // ROUTES
   server.on("/api/status",HTTP_GET,handleStatus);
   server.on("/api/manual/on",HTTP_GET,handleManualOn);
   server.on("/api/manual/off",HTTP_GET,handleManualOff);
   server.on("/api/auto",HTTP_GET,handleAutoOn);
 
   server.begin();
-
-  Serial.println("🚀 Sender System Ready");
 }
 
 // ==========================================
-// MAIN LOOP
+// LOOP
 // ==========================================
-void loop() {
+void loop(){
 
   server.handleClient();
 
-  // ======================================
-  // IR SENSOR STATE MACHINE
-  // ======================================
+  // IR LOGIC
   int A = digitalRead(irA);
   int B = digitalRead(irB);
 
   switch(irState){
 
     case 0:
-
-      if(A==LOW){
-        irState=1;
-        lastTriggerTime=millis();
-      }
-
-      else if(B==LOW){
-        irState=2;
-        lastTriggerTime=millis();
-      }
-
+      if(A==LOW){ irState=1; lastTriggerTime=millis(); }
+      else if(B==LOW){ irState=2; lastTriggerTime=millis(); }
     break;
 
     case 1:
-
       if(B==LOW){
-
         personCount++;
-
-        Serial.print("👤 Entered | Count = ");
-        Serial.println(personCount);
-
+        Serial.println("Entered");
         irState=0;
         delay(300);
       }
-
     break;
 
     case 2:
-
       if(A==LOW){
-
-        if(personCount>0)
-          personCount--;
-
-        Serial.print("👤 Left | Count = ");
-        Serial.println(personCount);
-
+        if(personCount>0) personCount--;
+        Serial.println("Left");
         irState=0;
         delay(300);
       }
-
     break;
   }
 
-  if(irState!=0 && millis()-lastTriggerTime>2000){
-    irState=0;
-  }
+  if(irState!=0 && millis()-lastTriggerTime>2000) irState=0;
 
-  // ======================================
-  // LDR SMOOTHING (Noise Reduction)
-  // ======================================
-  int sum = 0;
+  // LDR
+  int sum=0;
+  for(int i=0;i<10;i++){ sum+=analogRead(ldrPin); delay(2); }
+  int brightness = map(sum/10,0,4095,100,0);
 
-  for(int i=0;i<10;i++){
-    sum += analogRead(ldrPin);
-    delay(2);
-  }
-
-  int ldrValue = sum/10;
-
-  int brightness = map(ldrValue,0,4095,100,0);
-
-  // ======================================
-  // CORE LOGIC (Industrial Light Control)
-  // ======================================
   int targetState = 0;
 
+  // ======================================
+  // AUTO MODE
+  // ======================================
   if(autoMode){
 
-    if(personCount > 0){
-
-      // DARK → LIGHT ON
-      if(!lightState && brightness < 20){
-
-        lightState = true;
-
-        Serial.println("🌙 DARK (<20%) → LIGHT ON");
-      }
-
-      // BRIGHT → LIGHT OFF
-      if(lightState && brightness > 40){
-
-        lightState = false;
-
-        Serial.println("☀️ BRIGHT (>40%) → LIGHT OFF");
-      }
-
+    if(personCount == 0){
+      lightState = false;
+      autoLightOn = false;
+      darkRunning = false;
     }
+
     else{
 
-      lightState = false;
+      if(brightness < 20 && !lightState){
+        lightState = true;
+        autoLightOn = true;
+        Serial.println("Dark → ON instantly");
+      }
+
+      if(!lightState && brightness < 20){
+
+        if(!darkRunning){
+          darkStart = millis();
+          darkRunning = true;
+        }
+
+        if(millis()-darkStart > DELAY_TIME){
+          lightState = true;
+          autoLightOn = true;
+          Serial.println("Dark delay → ON");
+        }
+      }
+
+      if(brightness > 40){
+        darkRunning = false;
+      }
     }
 
     targetState = lightState ? 1 : 0;
-
   }
 
+  // ======================================
+  // MANUAL MODE
+  // ======================================
   else{
 
     targetState = manualLightState;
+    autoLightOn = false;
 
-    if(millis()-manualStartTime > FAILSAFE_TIME){
-
+    // If room empty → reset system
+    if(personCount == 0){
       autoMode = true;
-
-      Serial.println("⏱️ FAILSAFE → AUTO RESTORED (Time Expired)");
-    }
-
-    if(personCount==0 && targetState==1){
-
-      autoMode = true;
-      targetState = 0;
-
-      Serial.println("🚪 FAILSAFE → EMPTY ROOM → LIGHT OFF");
+      lightState = false;
     }
   }
 
   // ======================================
-  // SEND ESP-NOW SIGNAL
+  // SEND
   // ======================================
-  if(targetState!=lastSentState){
+  if(targetState != lastSentState){
 
-    esp_now_send(broadcastAddress,(uint8_t *)&targetState,sizeof(targetState));
+    esp_now_send(broadcastAddress,(uint8_t*)&targetState,sizeof(targetState));
 
-    if(targetState==1)
-      Serial.println("💡 SIGNAL SENT: LIGHT ON");
-    else
-      Serial.println("🔌 SIGNAL SENT: LIGHT OFF");
+    if(targetState==1) Serial.println("LIGHT ON");
+    else Serial.println("LIGHT OFF");
 
     lastSentState = targetState;
   }
-
 }

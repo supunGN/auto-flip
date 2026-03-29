@@ -59,6 +59,9 @@ void setup() {
   esp_now_register_recv_cb(onDataRecv);
 
   Serial.println("📡 Receiver Ready. Listening on Channel 9...");
+
+  Serial.print("MAC Address: ");
+  Serial.println(WiFi.macAddress()); // MAC ADDRESS OF RECEIVER
 }
 
 void loop() {
