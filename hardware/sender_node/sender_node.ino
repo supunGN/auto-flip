@@ -5,10 +5,10 @@
 // ==========================================
 // NETWORK
 // ==========================================
-const char* ssid = "RAZYN";
-const char* password = "HiRAZYN07";
+const char* ssid = "SSID";
+const char* password = "PASSWORD";
 
-uint8_t broadcastAddress[] = {0xEC,0xE3,0x34,0x7B,0x74,0xC4};
+uint8_t broadcastAddress[] = {0x00,0x00,0x00,0x00,0x00,0x00}; // MAC ADDRESS OF RECEIVER
 WebServer server(80);
 
 // ==========================================
